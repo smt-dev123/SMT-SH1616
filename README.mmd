@@ -1,0 +1,34 @@
+flowchart TD
+    A["Start"] --> B["setup()"]
+    B --> C["Initialize I2C, RTC, relay pins, switch pins"]
+    C --> D["Blynk.begin(auth, ssid, pass)"]
+    D --> E["loop()"]
+    E --> F{"WiFi connected?"}
+    F -->|Yes| G["Blynk.run() and set espLedPin HIGH"]
+    F -->|No| H["Blink espLedPin every 500ms"]
+    G --> I["Check timer every 1000ms"]
+    H --> I
+    I --> J{"Timer check due?"}
+    J -->|Yes| K["Scan 4 timer channels V12-V15"]
+    J -->|No| R["Scan 16 switches"]
+    K --> L{"isTimerActive[i]?"}
+    L -->|Yes| M{"current == start && relay off?"}
+    L -->|No| Q["No timer action"]
+    M -->|Yes| N["controlRelay(relayPin, 1)"]
+    M -->|No| O{"current == end && relay on?"}
+    O -->|Yes| P["controlRelay(relayPin, 0)"]
+    O -->|No| Q
+    N --> Q
+    P --> Q
+    Q --> R
+    R --> S{"Switch state changed?"}
+    S -->|Yes| T{"Debounce > 50ms?"}
+    S -->|No| V["Continue loop"]
+    T -->|Yes| U["controlRelay(i, targetState)"]
+    T -->|No| V
+    U --> V
+    V --> E
+    X["BLYNK_WRITE(V0..V11)"] --> AD["controlRelay(pin, state)"]
+    Y["BLYNK_WRITE(V12..V15)"] --> AA["processTimeInput(vPin)"]
+    AA --> AB["Update timer arrays and activate timer"]
+    Z["BLYNK_CONNECTED"] --> AC["blynkRtc.begin()"]

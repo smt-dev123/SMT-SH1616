@@ -1,0 +1,5 @@
+[secret_credentials]
+
+BLYNK_TEMPLATE_ID = ""
+BLYNK_TEMPLATE_NAME = ""
+BLYNK_AUTH_TOKEN = ""
