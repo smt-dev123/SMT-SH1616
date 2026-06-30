@@ -3,7 +3,7 @@
 
 #include "config.h"
 
-// Function Control Relay
+// Function Control Relay (0-15)
 void controlRelay(int pin, int state)
 {
     if (pin < 0 || pin >= 16)
