@@ -9,25 +9,21 @@ void controlRelay(int pin, int state)
     if (pin < 0 || pin >= 16)
         return;
 
-    // ឆែកមើល៖ បើស្ថានភាពថ្មីដូចស្ថានភាពចាស់ដែលមានស្រាប់ មិនបាច់ធ្វើអ្វីទាំងអស់ (ការពារ Loop)
     if (ledState[pin] == state)
         return;
 
-    // កត់ត្រាស្ថានភាពថ្មីចូលក្នុង Array
     ledState[pin] = state;
 
-    // បញ្ជាទៅជើង Hardware MCP23X17
-    mcpRL1.digitalWrite(pin, state ? HIGH : LOW); // បើ Relay ជា Active LOW ត្រូវដូរទៅ (state ? LOW : HIGH)
+    // Relay Module (Active LOW - បើ Relay ប្រើ Active HIGH ត្រូវប្តូរ)
+    mcpRL1.digitalWrite(pin, state ? HIGH : LOW);
 
-    // ផ្ញើទៅ Update លើ App តែជើងណាដែលមិនមែនជាទិន្នន័យបានមកពីការចុច App ផ្ទាល់
-    // ឬ Update ទៅដើម្បីឲ្យប្រាកដថា App បង្ហាញស្ថានភាពត្រូវនឹង Hardware
     if (Blynk.connected())
     {
         Blynk.virtualWrite(V0 + pin, state);
     }
 }
 
-// អនុគមន៍ពិនិត្យម៉ោងពី RTC (ហៅទៅប្រើក្នុង loop)
+// អនុគមន៍ពិនិត្យម៉ោងពី RTC
 void checkRTCTimers()
 {
     static unsigned long lastTimeCheck = 0;
@@ -38,27 +34,26 @@ void checkRTCTimers()
         int currentHour = now.hour();
         int currentMinute = now.minute();
 
-        for (int i = 0; i < 4; i++)
+        for (int i = 0; i < 16; i++)
         {
             if (isTimerActive[i])
             {
-                int relayPin = 12 + i;
-                if (currentHour == startHr[i] && currentMinute == startMin[i] && ledState[relayPin] == 0)
+                if (currentHour == startHr[i] && currentMinute == startMin[i] && ledState[i] == 0)
                 {
-                    controlRelay(relayPin, 1);
-                    Serial.printf("Timer: បើកភ្លើងជើងទី %d\n", relayPin);
+                    controlRelay(i, 1);
+                    Serial.printf("Timer: បើក Relay %d\n", i);
                 }
-                else if (currentHour == endHr[i] && currentMinute == endMin[i] && ledState[relayPin] == 1)
+                else if (currentHour == endHr[i] && currentMinute == endMin[i] && ledState[i] == 1)
                 {
-                    controlRelay(relayPin, 0);
-                    Serial.printf("Timer: បិទភ្លើងជើងទី %d\n", relayPin);
+                    controlRelay(i, 0);
+                    Serial.printf("Timer: បិទ Relay %d\n", i);
                 }
             }
         }
     }
 }
 
-// អនុគមន៍ឆែកប៊ូតុងកុងតាក់ (ហៅទៅប្រើក្នុង loop)
+// អនុគមន៍ឆែកប៊ូតុងកុងតាក់
 void checkPhysicalSwitches()
 {
     static unsigned long lastDebounceTime[16] = {0};
