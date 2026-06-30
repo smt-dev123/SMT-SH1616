@@ -3,7 +3,7 @@
 
 #include "config.h"
 
-// អនុគមន៍បញ្ជា Relay
+// Function Control Relay
 void controlRelay(int pin, int state)
 {
     if (pin < 0 || pin >= 16)
