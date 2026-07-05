@@ -175,26 +175,60 @@ void loop()
   // ឆែកស្ថានភាពខ្សែ Ethernet ជាប្រចាំ
   checkEthernetStatus();
 
-  // ===== NETWORK LOGIC (PREVENT CONFLICT) =====
+  // ===== NEW NETWORK LOGIC (AUTO-RECONNECT FIX) =====
+  static unsigned long lastBlynkCheck = 0;
+
   if (isEthernetConnected)
   {
-    // ករណីទី១៖ បើ Ethernet ដំណើរការ រត់តែ Blynk តាមរន្ធដោតទៅបានហើយ
-    Blynk.run();
+    // ករណីទី១៖ ប្រើ Ethernet (ដោតខ្សែ)
+    if (!Blynk.connected())
+    {
+      // បើដាច់ Verbindung ឱ្យវា Reconnect ម្តងរាល់ ៥ វិនាទី (Non-blocking)
+      if (millis() - lastBlynkCheck > 5000)
+      {
+        lastBlynkCheck = millis();
+        Serial.println("🔄 Ethernet active, reconnecting to Blynk...");
+        Blynk.connect();
+      }
+    }
+    else
+    {
+      Blynk.run();
+    }
     digitalWrite(espLedPin, HIGH);
   }
   else
   {
-    // ករណីទី២៖ បើគ្មាន Ethernet ទើបអនុញ្ញាតឱ្យ WiFi Manager ដំណើរការ Background Process
-    wm.process();
+    // ករណីទី២៖ ប្រើ WiFi (Backup)
+    wm.process(); // ឱ្យ WiFiManager ដំណើរការ Background Process ធម្មតា
 
     if (WiFi.status() == WL_CONNECTED)
     {
-      Blynk.run();
+      if (!Blynk.connected())
+      {
+        // បើ WiFi ភ្ជាប់ឡើងវិញបានហើយ តែ Blynk មិនទាន់ជាប់
+        if (millis() - lastBlynkCheck > 5000)
+        {
+          lastBlynkCheck = millis();
+          Serial.println("🔄 WiFi reconnected! Connecting to Blynk Server...");
+
+          // កាត់ផ្តាច់ Socket ចាស់ដែលគាំងចោល រួចចាប់ផ្តើម Connect ថ្មី
+          Blynk.disconnect();
+          Blynk.connect();
+        }
+      }
+      else
+      {
+        Blynk.run(); // ដំណើរការ Blynk ធម្មតាពេលជាប់ទាំងពីរ
+      }
       digitalWrite(espLedPin, HIGH);
     }
     else
     {
       // ករណីដាច់អ៊ីនធឺណិតទាំងពីរ (ឱ្យ LED ភ្លឹបភ្លែតៗ)
+      if (Blynk.connected())
+        Blynk.disconnect(); // ការពារកូដទាក់
+
       if (millis() - lastBlinkTime >= 500)
       {
         lastBlinkTime = millis();
@@ -205,7 +239,7 @@ void loop()
   }
 
   // ===== HARDWARE FUNCTIONS =====
-  updateLCDDisplay();      // ធ្វើបច្ចុប្បន្នភាព LCD ឆ្លាស់ទំព័ររាល់ ៤ វិនាទី
-  checkRTCTimers();        // ពិនិត្យម៉ោងបើក/បិទ ពី RTC
-  checkPhysicalSwitches(); // ពិនិត្យប៊ូតុងកុងតាក់ជញ្ជាំង
+  updateLCDDisplay();
+  checkRTCTimers();
+  checkPhysicalSwitches();
 }
