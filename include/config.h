@@ -59,13 +59,17 @@
 #include <BlynkSimpleEsp32.h>
 #include <Adafruit_MCP23X17.h>
 #include <RTClib.h>
+#include <WidgetRTC.h>
 #include <WiFiManager.h>
 #include <SPI.h>
 #include <Ethernet.h>
+#include <LiquidCrystal_I2C.h>
 
 // ===== EXTERNAL VARIABLES =====
 extern Adafruit_MCP23X17 mcpRL1, mcpSW1;
 extern RTC_DS3231 rtc;
+extern WidgetRTC blynkRtc;
+extern LiquidCrystal_I2C lcd;
 
 extern bool ledState[16];
 extern bool lastSwitchState[16];

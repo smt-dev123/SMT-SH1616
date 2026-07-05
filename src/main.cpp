@@ -1,6 +1,7 @@
 #include "config.h"
 #include "hardware_control.h"
 #include "blynk_control.h"
+#include "lcd_control.h"
 
 // ===== USE DEFINES FROM BUILD_FLAGS =====
 const int espLedPin = ESP_LED_PIN;
@@ -13,6 +14,7 @@ byte mac[] = {0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED};
 
 Adafruit_MCP23X17 mcpRL1, mcpSW1;
 RTC_DS3231 rtc;
+WidgetRTC blynkRtc;
 
 bool ledState[16] = {0};
 bool lastSwitchState[16] = {1};
@@ -29,6 +31,20 @@ bool isEthernetConnected = false;
 
 WiFiManager wm;
 
+// ===== WIFI MANAGER CALLBACK =====
+// រត់អូតូនៅពេលអ្នកប្រើប្រាស់កំណត់ WiFi រួចហើយចុច Save លើទូរស័ព្ទ
+void saveConfigCallback()
+{
+  Serial.println("💾 WiFi settings saved successfully!");
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("WiFi Saved!");
+  lcd.setCursor(0, 1);
+  lcd.print("Restarting...   ");
+  delay(1500);
+  ESP.restart(); // ចាប់ផ្តើមឡើងវិញភ្លាម ការពារការគាំងទាក់ទិន្នន័យ (Network Core Hang)
+}
+
 // ===== INIT W5500 =====
 void initW5500()
 {
@@ -38,14 +54,13 @@ void initW5500()
   digitalWrite(W5500_RST_PIN, HIGH);
   delay(200);
 
-  SPI.begin(); // Initialize SPI
+  SPI.begin();
   Ethernet.init(W5500_CS_PIN);
   Serial.println("🌐 Initializing W5500 Ethernet...");
 
   if (Ethernet.begin(mac) == 0)
   {
     Serial.println("❌ Ethernet DHCP failed!");
-    Serial.println("   Check cable connection or DHCP server");
     isEthernetConnected = false;
   }
   else
@@ -85,16 +100,13 @@ void setup()
   delay(100);
   Serial.println("\n🚀 System Starting...");
 
+  // ===== INITIALIZE I2C & LCD =====
+  Wire.begin();
+  initLCD();
+
   // ===== DEBUG BUILD FLAGS =====
   Serial.println("=== Build Configuration ===");
-  Serial.printf("W5500 CS Pin: %d\n", W5500_CS_PIN);
-  Serial.printf("W5500 RST Pin: %d\n", W5500_RST_PIN);
-  Serial.printf("ESP LED Pin: %d\n", ESP_LED_PIN);
-  Serial.printf("Reset WiFi Pin: %d\n", RESET_WIFI_PIN);
-  Serial.printf("MCP Relay Addr: 0x%02X\n", MCP_RL1_ADDR);
-  Serial.printf("MCP Switch Addr: 0x%02X\n", MCP_SW1_ADDR);
   Serial.printf("Blynk Template ID: %s\n", BLYNK_TEMPLATE_ID);
-  Serial.printf("Blynk Template Name: %s\n", BLYNK_TEMPLATE_NAME);
   Serial.println("==========================\n");
 
   // ===== INITIALIZE PINS =====
@@ -103,22 +115,12 @@ void setup()
   pinMode(resetWifiPin, INPUT_PULLUP);
 
   // ===== INITIALIZE I2C DEVICES =====
-  Wire.begin();
-
   if (!mcpRL1.begin_I2C(mcpRL1Addr))
     Serial.println("❌ MCP23X17 Relay not found!");
-  else
-    Serial.println("✅ MCP23X17 Relay initialized");
-
   if (!mcpSW1.begin_I2C(mcpSW1Addr))
     Serial.println("❌ MCP23X17 Switch not found!");
-  else
-    Serial.println("✅ MCP23X17 Switch initialized");
-
   if (!rtc.begin())
     Serial.println("❌ DS3231 RTC not found!");
-  else
-    Serial.println("✅ RTC initialized");
 
   // ===== CONFIGURE MCP PINS =====
   for (int i = 0; i < 16; i++)
@@ -130,15 +132,15 @@ void setup()
     lastSwitchState[i] = mcpSW1.digitalRead(i);
   }
 
-  // ===== ETHERNET (PRIMARY) =====
-  initW5500();
+  // ===== NETWORK INITIALIZATION =====
+  initW5500(); // ចាប់ផ្តើម Ethernet ជាអាទិភាពចម្បង
 
-  // ===== WIFI (BACKUP) =====
   if (!isEthernetConnected)
   {
     Serial.println("📡 No Ethernet, starting WiFi Manager...");
     wm.setConfigPortalBlocking(false);
     wm.setConfigPortalTimeout(180);
+    wm.setSaveConfigCallback(saveConfigCallback); // ហៅ Callback ពេលចុច Save WiFi លើ Portal
 
     if (!wm.autoConnect("SHMT-HOME-CONFIG"))
     {
@@ -146,62 +148,64 @@ void setup()
     }
   }
 
-  // ===== BLYNK =====
+  // ===== BLYNK CONFIG =====
   Blynk.config(BLYNK_AUTH_TOKEN);
-
   Serial.println("✅ Setup complete!\n");
 }
 
 void loop()
 {
-  // ===== WIFI MANAGER PROCESS =====
-  wm.process();
-
   // ===== RESET WIFI BUTTON (Hold 3 seconds) =====
   if (digitalRead(resetWifiPin) == LOW)
   {
-    delay(3000);
-    if (digitalRead(resetWifiPin) == LOW)
+    delay(100);
+    unsigned long holdTime = millis();
+    while (digitalRead(resetWifiPin) == LOW)
     {
-      Serial.println("🗑️ Resetting WiFi settings...");
-      wm.resetSettings();
-      Serial.println("🔄 Restarting...");
-      ESP.restart();
+      if (millis() - holdTime > 3000)
+      {
+        Serial.println("🗑️ Resetting WiFi settings...");
+        wm.resetSettings();
+        Serial.println("🔄 Restarting...");
+        ESP.restart();
+      }
     }
   }
 
-  // ===== NETWORK HANDLING =====
-  bool networkConnected = false;
-
-  // Priority 1: Ethernet (W5500)
+  // ឆែកស្ថានភាពខ្សែ Ethernet ជាប្រចាំ
   checkEthernetStatus();
+
+  // ===== NETWORK LOGIC (PREVENT CONFLICT) =====
   if (isEthernetConnected)
   {
+    // ករណីទី១៖ បើ Ethernet ដំណើរការ រត់តែ Blynk តាមរន្ធដោតទៅបានហើយ
     Blynk.run();
-    networkConnected = true;
     digitalWrite(espLedPin, HIGH);
   }
-
-  // Priority 2: WiFi (Backup)
-  if (!networkConnected && WiFi.status() == WL_CONNECTED)
+  else
   {
-    Blynk.run();
-    networkConnected = true;
-    digitalWrite(espLedPin, HIGH);
-  }
+    // ករណីទី២៖ បើគ្មាន Ethernet ទើបអនុញ្ញាតឱ្យ WiFi Manager ដំណើរការ Background Process
+    wm.process();
 
-  // No connection - Blink LED
-  if (!networkConnected)
-  {
-    if (millis() - lastBlinkTime >= 500)
+    if (WiFi.status() == WL_CONNECTED)
     {
-      lastBlinkTime = millis();
-      ledStatus = !ledStatus;
-      digitalWrite(espLedPin, ledStatus);
+      Blynk.run();
+      digitalWrite(espLedPin, HIGH);
+    }
+    else
+    {
+      // ករណីដាច់អ៊ីនធឺណិតទាំងពីរ (ឱ្យ LED ភ្លឹបភ្លែតៗ)
+      if (millis() - lastBlinkTime >= 500)
+      {
+        lastBlinkTime = millis();
+        ledStatus = !ledStatus;
+        digitalWrite(espLedPin, ledStatus);
+      }
     }
   }
 
   // ===== HARDWARE FUNCTIONS =====
-  checkRTCTimers();
-  checkPhysicalSwitches();
+  updateLCDDisplay();      // ធ្វើបច្ចុប្បន្នភាព LCD ឆ្លាស់ទំព័ររាល់ ៤ វិនាទី
+  checkRTCTimers();        // ពិនិត្យម៉ោងបើក/បិទ ពី RTC
+  checkPhysicalSwitches(); // ពិនិត្យប៊ូតុងកុងតាក់ជញ្ជាំង
 }

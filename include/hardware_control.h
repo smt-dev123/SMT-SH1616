@@ -30,9 +30,9 @@ void checkRTCTimers()
     if (millis() - lastTimeCheck >= 1000)
     {
         lastTimeCheck = millis();
-        DateTime now = rtc.now();
-        int currentHour = now.hour();
-        int currentMinute = now.minute();
+        int currentHour = hour();
+        int currentMinute = minute();
+        int currentSecond = second();
 
         for (int i = 0; i < 16; i++)
         {

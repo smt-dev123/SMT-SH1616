@@ -4,20 +4,36 @@
 #include "config.h"
 #include "hardware_control.h"
 
+// មុខងារទាញយក State មកវិញម្តងមួយៗនៅពេលប្រព័ន្ធភ្ជាប់ទៅ Blynk បានជោគជ័យ
+BLYNK_CONNECTED()
+{
+    blynkRtc.begin();
+    Serial.println("⏰ Internet Time Synced via Blynk RTC!");
+
+    for (int i = 0; i < 16; i++)
+    {
+        int targetVPin = V0 + i; // ឧបមាថាប្រើ V0 ដល់ V15 សម្រាប់ Relay 1 ដល់ 16
+        Blynk.syncVirtual(targetVPin);
+        Serial.printf("🔄 Synced Pin: V%d\n", targetVPin);
+        delay(500); // ពន្យារពេល ០.៥ វិនាទី កុំឱ្យទាញចរន្តព្រមគ្នា និងការពារ Buffer ពេញ
+    }
+
+    Serial.println("✅ All 16 channels synced successfully!");
+}
+
 BLYNK_WRITE_DEFAULT()
 {
     int vPin = request.pin;
 
-    // ពិនិត្យមើលថា vPin ស្ថិតក្នុង Range
     if (vPin >= 0 && vPin <= 15)
     {
         BlynkParam::iterator it = param.begin();
 
-        // ១. ប្រសិនបើ Data ដែលផ្ញើមកមានច្រើនធាតុ (វាជា Time Input Widget)
+        // ១. ប្រសិនបើ Data ជា Time Input Widget (Timer)
         if (it < param.end() && ++it < param.end())
         {
             TimeInputParam t(param);
-            int index = vPin; // ប្រើ vPin ធ្វើជា Index ផ្ទុកទិន្នន័យម៉ោងតែម្តង
+            int index = vPin;
 
             if (t.hasStartTime() && t.hasStopTime())
             {
@@ -26,17 +42,15 @@ BLYNK_WRITE_DEFAULT()
                 endHr[index] = t.getStopHour();
                 endMin[index] = t.getStopMinute();
                 isTimerActive[index] = true;
-
                 Serial.printf("V%d បានកំណត់ Timer: %02d:%02d ដល់ %02d:%02d\n", vPin, startHr[index], startMin[index], endHr[index], endMin[index]);
             }
             else
             {
-                // បើលុប Timer ចោលវិញ (Clear Timer)
                 isTimerActive[index] = false;
                 Serial.printf("V%d បានលុប Timer ចោល\n", vPin);
             }
         }
-        // ២. ប្រសិនបើ Data ជាលេខទោល (វាជា Button Widget ឬ Switch)
+        // ២. ប្រសិនបើ Data ជាលេខទោល (Button / Switch)
         else
         {
             int buttonState = param.asInt();
