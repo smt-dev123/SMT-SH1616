@@ -1,5 +1,6 @@
 [secret_credentials]
 
+MY_FIWI_SSID = ""
 BLYNK_TEMPLATE_ID = ""
 BLYNK_TEMPLATE_NAME = ""
 BLYNK_AUTH_TOKEN = ""

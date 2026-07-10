@@ -2,6 +2,11 @@
 #define CONFIG_H
 
 // ===== BLYNK CREDENTIALS (from build_flags) =====
+#ifndef MY_FIWI_SSID
+#warning "MY_FIWI_SSID not defined! Using empty string."
+#define MY_FIWI_SSID "SMT-SH1616"
+#endif
+
 #ifndef MY_BLYNK_TEMPLATE_ID
 #warning "MY_BLYNK_TEMPLATE_ID not defined! Using empty string."
 #define MY_BLYNK_TEMPLATE_ID ""
@@ -17,6 +22,7 @@
 #define MY_BLYNK_AUTH_TOKEN ""
 #endif
 
+#define MY_SSID MY_FIWI_SSID
 #define BLYNK_TEMPLATE_ID MY_BLYNK_TEMPLATE_ID
 #define BLYNK_TEMPLATE_NAME MY_BLYNK_TEMPLATE_NAME
 #define BLYNK_AUTH_TOKEN MY_BLYNK_AUTH_TOKEN
@@ -32,6 +38,19 @@
 
 #ifndef W5500_INT_PIN
 #define W5500_INT_PIN 34
+#endif
+
+// ===== SPI PINS =====
+#ifndef SPI_SCK_PIN
+#define SPI_SCK_PIN 18
+#endif
+
+#ifndef SPI_MISO_PIN
+#define SPI_MISO_PIN 19
+#endif
+
+#ifndef SPI_MOSI_PIN
+#define SPI_MOSI_PIN 23
 #endif
 
 // ===== LED PINS =====
@@ -56,13 +75,41 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WiFiClient.h>
-#include <BlynkSimpleEsp32.h>
-#include <Adafruit_MCP23X17.h>
-#include <RTClib.h>
-#include <WidgetRTC.h>
-#include <WiFiManager.h>
 #include <SPI.h>
 #include <Ethernet.h>
+
+#include <BlynkApiArduino.h>
+#include <Blynk/BlynkProtocol.h>
+#include <Adapters/BlynkArduinoClient.h>
+
+#include "DualClient.h"
+
+// Define custom Blynk object that supports DualClient
+class BlynkDual : public BlynkProtocol<BlynkArduinoClient>
+{
+    typedef BlynkProtocol<BlynkArduinoClient> Base;
+
+public:
+    BlynkDual(BlynkArduinoClient &transp) : Base(transp) {}
+    void config(const char *auth, const char *domain = BLYNK_DEFAULT_DOMAIN, uint16_t port = BLYNK_DEFAULT_PORT)
+    {
+        Base::begin(auth);
+        this->conn.begin(domain, port);
+    }
+    void config(const char *auth, IPAddress ip, uint16_t port = BLYNK_DEFAULT_PORT)
+    {
+        Base::begin(auth);
+        this->conn.begin(ip, port);
+    }
+};
+
+extern BlynkDual Blynk;
+
+#include <WidgetRTC.h>
+#include <WidgetTimeInput.h>
+#include <WiFiManager.h>
+#include <Adafruit_MCP23X17.h>
+#include <RTClib.h>
 #include <LiquidCrystal_I2C.h>
 
 // ===== EXTERNAL VARIABLES =====

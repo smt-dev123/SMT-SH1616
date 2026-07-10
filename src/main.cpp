@@ -2,6 +2,7 @@
 #include "hardware_control.h"
 #include "blynk_control.h"
 #include "lcd_control.h"
+#include "ethernet_control.h"
 
 // ===== USE DEFINES FROM BUILD_FLAGS =====
 const int espLedPin = ESP_LED_PIN;
@@ -11,6 +12,11 @@ const int mcpSW1Addr = MCP_SW1_ADDR;
 
 // MAC Address for W5500
 byte mac[] = {0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED};
+bool isEthernetConnected = false;
+
+DualClient dualClient;
+BlynkArduinoClient blynkTransport(dualClient);
+BlynkDual Blynk(blynkTransport);
 
 Adafruit_MCP23X17 mcpRL1, mcpSW1;
 RTC_DS3231 rtc;
@@ -27,7 +33,6 @@ bool isTimerActive[16] = {false};
 
 unsigned long lastBlinkTime = 0;
 bool ledStatus = false;
-bool isEthernetConnected = false;
 
 WiFiManager wm;
 
@@ -43,55 +48,6 @@ void saveConfigCallback()
   lcd.print("Restarting...   ");
   delay(1500);
   ESP.restart(); // ចាប់ផ្តើមឡើងវិញភ្លាម ការពារការគាំងទាក់ទិន្នន័យ (Network Core Hang)
-}
-
-// ===== INIT W5500 =====
-void initW5500()
-{
-  pinMode(W5500_RST_PIN, OUTPUT);
-  digitalWrite(W5500_RST_PIN, LOW);
-  delay(50);
-  digitalWrite(W5500_RST_PIN, HIGH);
-  delay(200);
-
-  SPI.begin();
-  Ethernet.init(W5500_CS_PIN);
-  Serial.println("🌐 Initializing W5500 Ethernet...");
-
-  if (Ethernet.begin(mac) == 0)
-  {
-    Serial.println("❌ Ethernet DHCP failed!");
-    isEthernetConnected = false;
-  }
-  else
-  {
-    Serial.print("✅ Ethernet connected! IP: ");
-    Serial.println(Ethernet.localIP());
-    isEthernetConnected = true;
-  }
-}
-
-// ===== CHECK ETHERNET STATUS =====
-void checkEthernetStatus()
-{
-  if (isEthernetConnected)
-  {
-    if (Ethernet.linkStatus() == LinkOFF)
-    {
-      Serial.println("⚠️ Ethernet link lost!");
-      isEthernetConnected = false;
-    }
-  }
-  else
-  {
-    static unsigned long lastReconnect = 0;
-    if (millis() - lastReconnect > 10000)
-    {
-      lastReconnect = millis();
-      Serial.println("🔄 Attempting Ethernet reconnect...");
-      initW5500();
-    }
-  }
 }
 
 void setup()
@@ -133,23 +89,23 @@ void setup()
   }
 
   // ===== NETWORK INITIALIZATION =====
-  initW5500(); // ចាប់ផ្តើម Ethernet ជាអាទិភាពចម្បង
+  initW5500(); // ហៅអនុគមន៍ពី ethernet_control.h
 
   if (!isEthernetConnected)
   {
     Serial.println("📡 No Ethernet, starting WiFi Manager...");
     wm.setConfigPortalBlocking(false);
     wm.setConfigPortalTimeout(180);
-    wm.setSaveConfigCallback(saveConfigCallback); // ហៅ Callback ពេលចុច Save WiFi លើ Portal
+    wm.setSaveConfigCallback(saveConfigCallback);
 
-    if (!wm.autoConnect("SHMT-HOME-CONFIG"))
+    if (!wm.autoConnect(MY_SSID))
     {
       Serial.println("⚠️ WiFi Config Portal started");
     }
   }
 
   // ===== BLYNK CONFIG =====
-  Blynk.config(BLYNK_AUTH_TOKEN);
+  Blynk.config(BLYNK_AUTH_TOKEN, IPAddress(64, 225, 16, 22), 80);
   Serial.println("✅ Setup complete!\n");
 }
 
@@ -172,69 +128,63 @@ void loop()
     }
   }
 
-  // ឆែកស្ថានភាពខ្សែ Ethernet ជាប្រចាំ
+  // ឆែកស្ថានភាពខ្សែ Ethernet ជាប្រចាំ (រក្សាទុក Non-blocking ពី ethernet_control.h)
   checkEthernetStatus();
 
-  // ===== NEW NETWORK LOGIC (AUTO-RECONNECT FIX) =====
+  // ===== កែសម្រួលប្រព័ន្ធគ្រប់គ្រងបណ្តាញ ដើម្បីទប់ស្កាត់ TCP/IP Crash =====
   static unsigned long lastBlynkCheck = 0;
+  bool isNetworkReady = false;
 
+  // ពិនិត្យមើលថា តើមានបណ្តាញណាមួយដែលអាចប្រើការបានពិតប្រាកដ?
   if (isEthernetConnected)
   {
-    // ករណីទី១៖ ប្រើ Ethernet (ដោតខ្សែ)
+    isNetworkReady = true;
+  }
+  else
+  {
+    wm.process(); // ដំណើរការ WiFiManager Background ករណីអត់មាន Ethernet
+    if (WiFi.status() == WL_CONNECTED)
+    {
+      isNetworkReady = true;
+    }
+  }
+
+  // បើមានបណ្តាញច្បាស់លាស់ (ទោះជា LAN ឬ WiFi) ទើបអនុញ្ញាតឱ្យ Blynk ធ្វើការ
+  if (isNetworkReady)
+  {
     if (!Blynk.connected())
     {
-      // បើដាច់ Verbindung ឱ្យវា Reconnect ម្តងរាល់ ៥ វិនាទី (Non-blocking)
-      if (millis() - lastBlynkCheck > 5000)
+      // ព្យាយាមភ្ជាប់ទៅ Blynk តែម្តងគត់រាល់ ៧ វិនាទី (កុំឱ្យ Aggressive ពេកនាំឱ្យ Stack ពេញ)
+      if (millis() - lastBlynkCheck > 7000)
       {
         lastBlynkCheck = millis();
-        Serial.println("🔄 Ethernet active, reconnecting to Blynk...");
+        Serial.println("🔄 Network is ready. Connecting to Blynk Server...");
+
+        // កាត់ផ្តាច់ Socket ចាស់ដែលខូចចោល រួចបង្កើត Fresh Connection
+        Blynk.disconnect();
+
+        // បង្ខំឱ្យរត់ទៅរក IP ផ្ទាល់របស់ Blynk តែម្តងដើម្បីជៀសវាង DNS Crash
         Blynk.connect();
       }
     }
     else
     {
-      Blynk.run();
+      Blynk.run(); // ដំណើរការ Blynk ធម្មតាពេលភ្ជាប់ជោគជ័យ
     }
     digitalWrite(espLedPin, HIGH);
   }
   else
   {
-    // ករណីទី២៖ ប្រើ WiFi (Backup)
-    wm.process(); // ឱ្យ WiFiManager ដំណើរការ Background Process ធម្មតា
+    // ករណីដាច់ទាំងពីរ៖ បិទ Blynk ចោលភ្លាម ការពារប្រព័ន្ធទាញកូដគាំង (Invalid mbox)
+    if (Blynk.connected())
+      Blynk.disconnect();
 
-    if (WiFi.status() == WL_CONNECTED)
+    // ឱ្យ LED ភ្លឹបភ្លែតៗប្រាប់សញ្ញាដាច់ Net
+    if (millis() - lastBlinkTime >= 500)
     {
-      if (!Blynk.connected())
-      {
-        // បើ WiFi ភ្ជាប់ឡើងវិញបានហើយ តែ Blynk មិនទាន់ជាប់
-        if (millis() - lastBlynkCheck > 5000)
-        {
-          lastBlynkCheck = millis();
-          Serial.println("🔄 WiFi reconnected! Connecting to Blynk Server...");
-
-          // កាត់ផ្តាច់ Socket ចាស់ដែលគាំងចោល រួចចាប់ផ្តើម Connect ថ្មី
-          Blynk.disconnect();
-          Blynk.connect();
-        }
-      }
-      else
-      {
-        Blynk.run(); // ដំណើរការ Blynk ធម្មតាពេលជាប់ទាំងពីរ
-      }
-      digitalWrite(espLedPin, HIGH);
-    }
-    else
-    {
-      // ករណីដាច់អ៊ីនធឺណិតទាំងពីរ (ឱ្យ LED ភ្លឹបភ្លែតៗ)
-      if (Blynk.connected())
-        Blynk.disconnect(); // ការពារកូដទាក់
-
-      if (millis() - lastBlinkTime >= 500)
-      {
-        lastBlinkTime = millis();
-        ledStatus = !ledStatus;
-        digitalWrite(espLedPin, ledStatus);
-      }
+      lastBlinkTime = millis();
+      ledStatus = !ledStatus;
+      digitalWrite(espLedPin, ledStatus);
     }
   }
 
