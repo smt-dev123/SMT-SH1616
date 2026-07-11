@@ -4,21 +4,39 @@
 #include "config.h"
 #include "hardware_control.h"
 
+int syncPinIndex = -1;
+unsigned long lastSyncTime = 0;
+
+void processBlynkSync()
+{
+    if (syncPinIndex >= 0 && syncPinIndex < 16)
+    {
+        if (millis() - lastSyncTime >= 1000)
+        { // ពន្យារពេល 1 វិនាទី កុំឱ្យទាញចរន្តព្រមគ្នា
+            int targetVPin = V0 + syncPinIndex;
+            Blynk.syncVirtual(targetVPin);
+            Serial.printf("🔄 Synced Pin: V%d\n", targetVPin);
+
+            syncPinIndex++;
+            lastSyncTime = millis();
+
+            if (syncPinIndex >= 16)
+            {
+                Serial.println("✅ All 16 channels synced successfully!");
+                syncPinIndex = -1;
+            }
+        }
+    }
+}
+
 // មុខងារទាញយក State មកវិញម្តងមួយៗនៅពេលប្រព័ន្ធភ្ជាប់ទៅ Blynk បានជោគជ័យ
 BLYNK_CONNECTED()
 {
     blynkRtc.begin();
     Serial.println("⏰ Internet Time Synced via Blynk RTC!");
 
-    for (int i = 0; i < 16; i++)
-    {
-        int targetVPin = V0 + i; // ឧបមាថាប្រើ V0 ដល់ V15 សម្រាប់ Relay 1 ដល់ 16
-        Blynk.syncVirtual(targetVPin);
-        Serial.printf("🔄 Synced Pin: V%d\n", targetVPin);
-        delay(500); // ពន្យារពេល ០.៥ វិនាទី កុំឱ្យទាញចរន្តព្រមគ្នា និងការពារ Buffer ពេញ
-    }
-
-    Serial.println("✅ All 16 channels synced successfully!");
+    syncPinIndex = 0;
+    lastSyncTime = millis();
 }
 
 BLYNK_WRITE_DEFAULT()

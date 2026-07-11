@@ -170,6 +170,7 @@ void loop()
     else
     {
       Blynk.run(); // ដំណើរការ Blynk ធម្មតាពេលភ្ជាប់ជោគជ័យ
+      processBlynkSync(); // ដំណើរការទាញយក State ម្តងមួយៗ
     }
     digitalWrite(espLedPin, HIGH);
   }
