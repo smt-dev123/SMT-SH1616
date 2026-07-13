@@ -11,7 +11,7 @@ void processBlynkSync()
 {
     if (syncPinIndex >= 0 && syncPinIndex < 16)
     {
-        if (millis() - lastSyncTime >= 1000)
+        if (millis() - lastSyncTime >= 1500)
         { // ពន្យារពេល 1 វិនាទី កុំឱ្យទាញចរន្តព្រមគ្នា
             int targetVPin = V0 + syncPinIndex;
             Blynk.syncVirtual(targetVPin);

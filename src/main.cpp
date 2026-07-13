@@ -33,8 +33,55 @@ bool isTimerActive[16] = {false};
 
 unsigned long lastBlinkTime = 0;
 bool ledStatus = false;
+bool isNetworkReady = false;
 
 WiFiManager wm;
+
+// ===== BLYNK TASK FOR FREE-RTOS =====
+// បង្កើត Task ថ្មីមួយដើម្បីឱ្យ Blynk ដើរដាច់ដោយឡែកពី loop() ទប់ស្កាត់ការគាំងពេលមាន WiFi តែអត់ Internet
+TaskHandle_t blynkTaskHandle;
+
+void blynkTask(void *pvParameters)
+{
+  static unsigned long lastBlynkCheck = 0;
+  for (;;)
+  {
+    if (isNetworkReady)
+    {
+      if (!Blynk.connected())
+      {
+        if (millis() - lastBlynkCheck > 7000)
+        {
+          lastBlynkCheck = millis();
+          Serial.println("🔄 Network is ready. Connecting to Blynk Server...");
+          Blynk.disconnect();
+          Blynk.connect(); // បើគាំងនៅទីនេះ វាគាំងតែក្នុង Task នេះទេ លែងប៉ះពាល់ដល់ loop() ទៀតហើយ!
+        }
+      }
+      else
+      {
+        Blynk.run();
+        processBlynkSync();
+      }
+      digitalWrite(espLedPin, HIGH);
+    }
+    else
+    {
+      if (Blynk.connected())
+        Blynk.disconnect();
+
+      if (millis() - lastBlinkTime >= 500)
+      {
+        lastBlinkTime = millis();
+        ledStatus = !ledStatus;
+        digitalWrite(espLedPin, ledStatus);
+      }
+    }
+
+    // ចាំបាច់ត្រូវមាន vTaskDelay ដើម្បីឱ្យ FreeRTOS អាចដកដង្ហើម និងបើកផ្លូវឱ្យ loop() ដើរ
+    vTaskDelay(10 / portTICK_PERIOD_MS);
+  }
+}
 
 // ===== WIFI MANAGER CALLBACK =====
 // រត់អូតូនៅពេលអ្នកប្រើប្រាស់កំណត់ WiFi រួចហើយចុច Save លើទូរស័ព្ទ
@@ -89,7 +136,7 @@ void setup()
   }
 
   // ===== NETWORK INITIALIZATION =====
-  initW5500(); // ហៅអនុគមន៍ពី ethernet_control.h
+  initW5500();
 
   if (!isEthernetConnected)
   {
@@ -106,6 +153,17 @@ void setup()
 
   // ===== BLYNK CONFIG =====
   Blynk.config(BLYNK_AUTH_TOKEN, IPAddress(64, 225, 16, 22), 80);
+
+  // បញ្ជាឱ្យ Blynk Task ចាប់ផ្តើមដំណើរការស្របគ្នាជាមួយ loop()
+  xTaskCreatePinnedToCore(
+      blynkTask,        // Task function
+      "BlynkTask",      // Name of task
+      4096,             // Stack size
+      NULL,             // Parameters
+      1,                // Priority (1 is good for network tasks)
+      &blynkTaskHandle, // Task handle
+      1);               // Pin to Core 1 (same as loop, safe for I2C)
+
   Serial.println("✅ Setup complete!\n");
 }
 
@@ -131,9 +189,8 @@ void loop()
   // ឆែកស្ថានភាពខ្សែ Ethernet ជាប្រចាំ (រក្សាទុក Non-blocking ពី ethernet_control.h)
   checkEthernetStatus();
 
-  // ===== កែសម្រួលប្រព័ន្ធគ្រប់គ្រងបណ្តាញ ដើម្បីទប់ស្កាត់ TCP/IP Crash =====
-  static unsigned long lastBlynkCheck = 0;
-  bool isNetworkReady = false;
+  // ===== ទប់ស្កាត់ TCP/IP Crash =====
+  isNetworkReady = false;
 
   // ពិនិត្យមើលថា តើមានបណ្តាញណាមួយដែលអាចប្រើការបានពិតប្រាកដ?
   if (isEthernetConnected)
@@ -146,46 +203,6 @@ void loop()
     if (WiFi.status() == WL_CONNECTED)
     {
       isNetworkReady = true;
-    }
-  }
-
-  // បើមានបណ្តាញច្បាស់លាស់ (ទោះជា LAN ឬ WiFi) ទើបអនុញ្ញាតឱ្យ Blynk ធ្វើការ
-  if (isNetworkReady)
-  {
-    if (!Blynk.connected())
-    {
-      // ព្យាយាមភ្ជាប់ទៅ Blynk តែម្តងគត់រាល់ ៧ វិនាទី (កុំឱ្យ Aggressive ពេកនាំឱ្យ Stack ពេញ)
-      if (millis() - lastBlynkCheck > 7000)
-      {
-        lastBlynkCheck = millis();
-        Serial.println("🔄 Network is ready. Connecting to Blynk Server...");
-
-        // កាត់ផ្តាច់ Socket ចាស់ដែលខូចចោល រួចបង្កើត Fresh Connection
-        Blynk.disconnect();
-
-        // បង្ខំឱ្យរត់ទៅរក IP ផ្ទាល់របស់ Blynk តែម្តងដើម្បីជៀសវាង DNS Crash
-        Blynk.connect();
-      }
-    }
-    else
-    {
-      Blynk.run(); // ដំណើរការ Blynk ធម្មតាពេលភ្ជាប់ជោគជ័យ
-      processBlynkSync(); // ដំណើរការទាញយក State ម្តងមួយៗ
-    }
-    digitalWrite(espLedPin, HIGH);
-  }
-  else
-  {
-    // ករណីដាច់ទាំងពីរ៖ បិទ Blynk ចោលភ្លាម ការពារប្រព័ន្ធទាញកូដគាំង (Invalid mbox)
-    if (Blynk.connected())
-      Blynk.disconnect();
-
-    // ឱ្យ LED ភ្លឹបភ្លែតៗប្រាប់សញ្ញាដាច់ Net
-    if (millis() - lastBlinkTime >= 500)
-    {
-      lastBlinkTime = millis();
-      ledStatus = !ledStatus;
-      digitalWrite(espLedPin, ledStatus);
     }
   }
 
