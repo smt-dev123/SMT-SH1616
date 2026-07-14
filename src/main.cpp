@@ -203,6 +203,31 @@ void loop()
     if (WiFi.status() == WL_CONNECTED)
     {
       isNetworkReady = true;
+      // បើភ្ជាប់ WiFi ដើរវិញ ត្រូវបិទ Portal (Access Point) ចោល
+      if (wm.getConfigPortalActive()) {
+        Serial.println("✅ WiFi connected! Stopping Config Portal...");
+        wm.stopConfigPortal();
+      }
+    }
+    else
+    {
+      // ដំណោះស្រាយពេលដាច់ភ្លើង: ESP ឆេះមុន Router ធ្វើឱ្យវាអត់ព្រម Connect
+      // យើងបង្ខំវាឱ្យព្យាយាម Reconnect រៀងរាល់ ២០ វិនាទីម្តងទោះកំពុងបើក Portal ក៏ដោយ
+      static unsigned long lastWifiRetry = 0;
+      if (millis() - lastWifiRetry > 20000) {
+         lastWifiRetry = millis();
+         if (wm.getWiFiIsSaved() && wm.getConfigPortalActive()) {
+            Serial.println("🔄 Router might be booting... Retrying saved WiFi in background...");
+            WiFi.begin(); 
+         }
+      }
+      
+      // បើ Portal ផុតកំណត់ (១៨០វិនាទី) ហើយនៅតែភ្ជាប់មិនបាន ត្រូវ Restart ម៉ាស៊ីន
+      if (!wm.getConfigPortalActive() && millis() > 60000) {
+         Serial.println("⚠️ WiFi Config Portal Timed Out! Restarting ESP...");
+         delay(1000);
+         ESP.restart();
+      }
     }
   }
 
